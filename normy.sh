@@ -228,10 +228,10 @@ ln -sf "logs/normalize-${RUN_TS}.log" "${OUT_DIR_ABS}/normalize.log" 2>/dev/null
 write_history
 
 # ── Sweep stale .tmp files left from prior interrupted/crashed runs ───────────
+# Recorded silently here; surfaced to console + log after the run header below.
 
 STALE_COUNT=$(find "$OUT_DIR_ABS" -type f -iname "*.mp3.tmp" 2>/dev/null | wc -l | tr -d ' ')
 if [ "$STALE_COUNT" -gt 0 ]; then
-  echo "Cleaning up $STALE_COUNT stale temp file(s) from a previous run..."
   find "$OUT_DIR_ABS" -type f -iname "*.mp3.tmp" -delete 2>/dev/null
 fi
 
@@ -259,6 +259,10 @@ echo "Target:   ${TARGET_I} LUFS" | tee -a "$LOG_FILE"
 echo "Encoding: $(describe_encoding)" | tee -a "$LOG_FILE"
 echo "Started:  $(date)" | tee -a "$LOG_FILE"
 echo "=============" | tee -a "$LOG_FILE"
+
+if [ "$STALE_COUNT" -gt 0 ]; then
+  echo "Cleaned up $STALE_COUNT stale temp file(s) from a previous run." | tee -a "$LOG_FILE"
+fi
 
 # ── Interrupt handling ────────────────────────────────────────────────────────
 #
