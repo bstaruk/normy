@@ -241,9 +241,9 @@ FILE_LIST=$(mktemp)
 ERR_TMP=$(mktemp)
 trap 'rm -f "$FILE_LIST" "$ERR_TMP"' EXIT
 
-find "$SRC_DIR_ABS" -type f -iname "*.mp3" -not -path "${OUT_DIR_ABS}/*" | sort > "$FILE_LIST"
+find "$SRC_DIR_ABS" -type f -iname "*.mp3" -not -path "${OUT_DIR_ABS}/*" -print0 | sort -z > "$FILE_LIST"
 
-TOTAL=$(wc -l < "$FILE_LIST" | tr -d ' ')
+TOTAL=$(LC_ALL=C tr -dc '\000' < "$FILE_LIST" | wc -c | tr -d ' ')
 if [ "$TOTAL" -eq 0 ]; then
   echo "No mp3 files found in: $SRC_DIR_ABS" >&2
   exit 1
@@ -293,7 +293,7 @@ declare -a WARNED_FILES=()
 
 RUN_START=$(date +%s)
 
-while IFS= read -r f; do
+while IFS= read -r -d '' f; do
   if [ "$INTERRUPTED" -eq 1 ]; then
     break
   fi
