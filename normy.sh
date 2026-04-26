@@ -287,6 +287,7 @@ trap on_interrupt INT TERM
 
 COUNT=0
 SUCCESS=0
+WARNED=0          # successful encodes that hit DECODE_WARN_THRESHOLD
 FAILED=0
 SKIPPED=0
 ATTEMPTED=0       # files we actually ran ffmpeg on (used for ETA averaging)
@@ -311,8 +312,18 @@ while IFS= read -r -d '' f; do
 
   mkdir -p "$OUTDIR_FULL"
 
+  # Build a running-totals fragment for the line prefix. Counters reflect
+  # state BEFORE this file is handled (incremented after the work below).
+  # Zeros are omitted so the prefix stays tight on a clean run.
+  TOTALS=""
+  [ "$SUCCESS" -gt 0 ] && TOTALS+="✓${SUCCESS} "
+  [ "$WARNED"  -gt 0 ] && TOTALS+="⚠${WARNED} "
+  [ "$FAILED"  -gt 0 ] && TOTALS+="✗${FAILED} "
+  [ "$SKIPPED" -gt 0 ] && TOTALS+="⊘${SKIPPED} "
+  [ -n "$TOTALS" ] && TOTALS="[${TOTALS% }] "
+
   if [ -f "$OUTFILE" ]; then
-    echo "[${COUNT}/${TOTAL}] SKIP: $REL_PATH" | tee -a "$LOG_FILE"
+    echo "[${COUNT}/${TOTAL}] ${TOTALS}SKIP: $REL_PATH" | tee -a "$LOG_FILE"
     SKIPPED=$((SKIPPED + 1))
     continue
   fi
@@ -324,9 +335,9 @@ while IFS= read -r -d '' f; do
     REMAINING=$((TOTAL - COUNT + 1))
     HANDLED=$((ATTEMPTED + SKIPPED))
     ETA_SECONDS=$((TIME_PROCESSING * REMAINING / HANDLED))
-    PREFIX="[${COUNT}/${TOTAL}] [ETA $(format_duration $ETA_SECONDS)]"
+    PREFIX="[${COUNT}/${TOTAL}] ${TOTALS}[ETA $(format_duration $ETA_SECONDS)]"
   else
-    PREFIX="[${COUNT}/${TOTAL}] [ETA --]"
+    PREFIX="[${COUNT}/${TOTAL}] ${TOTALS}[ETA --]"
   fi
   echo "$PREFIX $REL_PATH" | tee -a "$LOG_FILE"
 
@@ -431,6 +442,7 @@ while IFS= read -r -d '' f; do
     if [ "$TOTAL_DECODE_ERRS" -ge "$DECODE_WARN_THRESHOLD" ]; then
       WARN_TAG=" [! ${TOTAL_DECODE_ERRS} decode warnings]"
       WARNED_FILES+=("$REL_PATH (${TOTAL_DECODE_ERRS} warnings)")
+      WARNED=$((WARNED + 1))
     fi
 
     echo "  OK (${ENCODE_DESC}, ${BR_DESC} @ ${SRC_RATE}Hz) in $(format_duration $FILE_ELAPSED)${WARN_TAG}" | tee -a "$LOG_FILE"
