@@ -98,4 +98,4 @@ The defaults are tuned for spoken-word archive material. To change them, edit th
 
 ## License
 
-MIT
+[The Unlicense](LICENSE) — public domain. Do anything you want with this; no attribution required.
