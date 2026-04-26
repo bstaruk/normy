@@ -295,6 +295,7 @@ TIME_PROCESSING=0 # cumulative seconds spent on attempted encodes
 
 declare -a FAILED_FILES=()
 declare -a WARNED_FILES=()
+declare -a BITRATES_USED=()  # per-file output bitrate (preserve mode only)
 
 RUN_START=$(date +%s)
 
@@ -443,6 +444,7 @@ while IFS= read -r -d '' f; do
 
     mv "$OUTFILE_TMP" "$OUTFILE"
     SUCCESS=$((SUCCESS + 1))
+    [ "$ENCODE_MODE" = "preserve" ] && BITRATES_USED+=("$OUT_BR")
 
     WARN_TAG=""
     if [ "$TOTAL_DECODE_ERRS" -ge "$DECODE_WARN_THRESHOLD" ]; then
@@ -512,6 +514,15 @@ if [ ${#WARNED_FILES[@]} -gt 0 ]; then
   for wf in "${WARNED_FILES[@]}"; do
     echo "  - $wf" | tee -a "$LOG_FILE"
   done
+fi
+
+if [ ${#BITRATES_USED[@]} -gt 0 ]; then
+  {
+    echo ""
+    echo "Bitrate distribution:"
+    printf '%s\n' "${BITRATES_USED[@]}" | sort -n | uniq -c \
+      | awk '{ printf "  %4dk: %d files\n", $2, $1 }'
+  } | tee -a "$LOG_FILE"
 fi
 
 if [ "$INTERRUPTED" -eq 1 ]; then
