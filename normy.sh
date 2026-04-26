@@ -434,7 +434,15 @@ while IFS= read -r f; do
       echo "  Interrupted before completion." | tee -a "$LOG_FILE"
       break
     fi
-    cat "$ERR_TMP" >> "$LOG_FILE"
+    # Same flood-suppression as the success path: tally decoder noise as a
+    # one-liner, but keep non-flood lines verbatim so the actual failure
+    # reason is preserved in the log.
+    {
+      if [ "$TOTAL_DECODE_ERRS" -gt 0 ]; then
+        echo "  [decode warnings: ${HEADER_MISSING} header missing, ${INVALID_DATA} invalid data]"
+      fi
+      grep -v -E "Header missing|Invalid data found|Estimating duration|Trying to remove|Error submitting packet" "$ERR_TMP" 2>/dev/null
+    } >> "$LOG_FILE"
     echo "  FAILED (encoding error): $REL_PATH" | tee -a "$LOG_FILE"
     FAILED=$((FAILED + 1))
     FAILED_FILES+=("$REL_PATH")
