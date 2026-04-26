@@ -401,16 +401,22 @@ while IFS= read -r -d '' f; do
       -ar "${SRC_RATE}" "${ENC_ARGS[@]}" -map_metadata 0 -id3v2_version 3 \
       -f mp3 "$OUTFILE_TMP" 2>"$ERR_TMP"; then
       ENCODE_OK=1
-      ENCODE_DESC="${INPUT_I} -> ${TARGET_I} LUFS"
+      # Direction marker: ▲ if input was quieter (boosted up), ▼ if louder
+      # (cut down), ≈ if already within 0.5 dB of target.
+      LUFS_INDICATOR=$(awk -v i="$INPUT_I" -v t="$TARGET_I" \
+        'BEGIN { d = t - i; if (d > 0.5) printf "▲%.1fdB", d; else if (d < -0.5) printf "▼%.1fdB", -d; else print "≈" }')
+      ENCODE_DESC="${INPUT_I} → ${TARGET_I} LUFS"
     fi
   else
-    # Single-pass fallback when measurement fails
+    # Single-pass fallback when measurement fails — input loudness unknown,
+    # so no direction marker.
     if ffmpeg -nostdin -hide_banner -loglevel warning -i "$f" \
       -vn -af "loudnorm=I=${TARGET_I}:TP=${TARGET_TP}:LRA=${TARGET_LRA}" \
       -ar "${SRC_RATE}" "${ENC_ARGS[@]}" -map_metadata 0 -id3v2_version 3 \
       -f mp3 "$OUTFILE_TMP" 2>"$ERR_TMP"; then
       ENCODE_OK=1
-      ENCODE_DESC="single-pass -> ${TARGET_I} LUFS"
+      LUFS_INDICATOR=""
+      ENCODE_DESC="single-pass → ${TARGET_I} LUFS"
     fi
   fi
 
@@ -445,7 +451,8 @@ while IFS= read -r -d '' f; do
       WARNED=$((WARNED + 1))
     fi
 
-    echo "  OK (${ENCODE_DESC}, ${BR_DESC} @ ${SRC_RATE}Hz) in $(format_duration $FILE_ELAPSED)${WARN_TAG}" | tee -a "$LOG_FILE"
+    [ -n "$LUFS_INDICATOR" ] && LUFS_PREFIX="$LUFS_INDICATOR " || LUFS_PREFIX=""
+    echo "  OK ${LUFS_PREFIX}(${ENCODE_DESC}, ${BR_DESC} @ ${SRC_RATE}Hz) in $(format_duration $FILE_ELAPSED)${WARN_TAG}" | tee -a "$LOG_FILE"
   else
     rm -f "$OUTFILE_TMP"
     if [ "$INTERRUPTED" -eq 1 ]; then
