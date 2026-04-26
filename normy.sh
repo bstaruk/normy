@@ -282,6 +282,7 @@ trap on_interrupt INT TERM
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 COUNT=0
+SUCCESS=0
 FAILED=0
 SKIPPED=0
 ATTEMPTED=0       # files we actually ran ffmpeg on (used for ETA averaging)
@@ -418,6 +419,7 @@ while IFS= read -r f; do
     } >> "$LOG_FILE"
 
     mv "$OUTFILE_TMP" "$OUTFILE"
+    SUCCESS=$((SUCCESS + 1))
 
     WARN_TAG=""
     if [ "$TOTAL_DECODE_ERRS" -ge "$DECODE_WARN_THRESHOLD" ]; then
@@ -445,7 +447,6 @@ find "$OUT_DIR_ABS" -type f -iname "*.mp3.tmp" -delete 2>/dev/null
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
-SUCCESS=$((COUNT - FAILED - SKIPPED))
 TOTAL_ELAPSED=$(($(date +%s) - RUN_START))
 
 echo "" | tee -a "$LOG_FILE"
