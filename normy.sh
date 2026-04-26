@@ -185,6 +185,82 @@ detect_sample_rate() {
   echo "$rate"
 }
 
+# Audio duration in whole seconds; empty if undetectable.
+get_duration_seconds() {
+  local f="$1" d
+  d=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$f" 2>/dev/null)
+  if [[ "$d" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    awk -v d="$d" 'BEGIN { printf "%d", d + 0.5 }'
+  fi
+}
+
+# ── Per-file progress reporter ────────────────────────────────────────────────
+#
+# The reporter is a background loop that polls $PROGRESS_FILE (where ffmpeg
+# writes -progress key=value updates) and rewrites a single live status line
+# via carriage-return-and-clear-EOL. It only runs when stdout is a real
+# terminal — piped/redirected output gets clean per-file lines without the
+# rewrite noise. Pair every start_progress_reader with a stop_progress_reader.
+
+PROGRESS_FILE=""
+READER_PID=""
+
+render_progress_line() {
+  local label="$1" pct="$2" out_time="$3" duration="$4" speed="$5"
+  local width=20
+  local filled=$((pct * width / 100))
+  local empty=$((width - filled))
+  local bar="" i
+  for ((i=0; i<filled; i++)); do bar+="█"; done
+  for ((i=0; i<empty;  i++)); do bar+="░"; done
+  printf "\r  %-9s %s %3d%% │ %s/%s │ %s\033[K" \
+    "$label" "$bar" "$pct" \
+    "$(format_duration $out_time)" "$(format_duration $duration)" \
+    "${speed:-?x}"
+}
+
+run_progress_loop() {
+  local label="$1" duration="$2"
+  local out_time_us out_time speed pct last_pct=-1
+  out_time=0
+  speed=""
+  while [ ! -f "$PROGRESS_FILE.done" ]; do
+    if [ "$duration" -gt 0 ] && [ -s "$PROGRESS_FILE" ]; then
+      out_time_us=$(awk -F= '/^out_time_us=/{x=$2}END{print x+0}' "$PROGRESS_FILE" 2>/dev/null)
+      speed=$(awk -F= '/^speed=/{x=$2}END{print x}' "$PROGRESS_FILE" 2>/dev/null)
+      out_time=$((out_time_us / 1000000))
+      pct=$((out_time * 100 / duration))
+      [ "$pct" -gt 100 ] && pct=100
+      if [ "$pct" -ne "$last_pct" ]; then
+        render_progress_line "$label" "$pct" "$out_time" "$duration" "$speed"
+        last_pct=$pct
+      fi
+    fi
+    sleep 0.5
+  done
+  printf "\r\033[K"
+}
+
+start_progress_reader() {
+  local label="$1" duration="${2:-0}"
+  if ! [ -t 1 ] || [ "$duration" -le 0 ]; then
+    READER_PID=""
+    return
+  fi
+  : > "$PROGRESS_FILE"
+  rm -f "$PROGRESS_FILE.done"
+  run_progress_loop "$label" "$duration" &
+  READER_PID=$!
+}
+
+stop_progress_reader() {
+  if [ -n "$READER_PID" ]; then
+    touch "$PROGRESS_FILE.done"
+    wait "$READER_PID" 2>/dev/null
+    READER_PID=""
+  fi
+}
+
 # ── Resolve source/output paths ───────────────────────────────────────────────
 
 SRC_DIR=""
@@ -239,7 +315,11 @@ fi
 
 FILE_LIST=$(mktemp)
 ERR_TMP=$(mktemp)
-trap 'rm -f "$FILE_LIST" "$ERR_TMP"' EXIT
+PROGRESS_FILE=$(mktemp)
+trap '
+  [ -n "$READER_PID" ] && kill "$READER_PID" 2>/dev/null
+  rm -f "$FILE_LIST" "$ERR_TMP" "$PROGRESS_FILE" "$PROGRESS_FILE.done"
+' EXIT
 
 find "$SRC_DIR_ABS" -type f -iname "*.mp3" -not -path "${OUT_DIR_ABS}/*" -print0 | sort -z > "$FILE_LIST"
 
@@ -352,6 +432,8 @@ while IFS= read -r -d '' f; do
   fi
 
   SRC_RATE=$(detect_sample_rate "$f")
+  DURATION_S=$(get_duration_seconds "$f")
+  DURATION_S=${DURATION_S:-0}
 
   # Decide encoding args & description
   if [ "$ENCODE_MODE" = "vbr" ]; then
@@ -375,9 +457,12 @@ while IFS= read -r -d '' f; do
   FILE_START=$(date +%s)
 
   # Pass 1 — measure
+  start_progress_reader "Analyzing" "$DURATION_S"
   MEASURE=$(ffmpeg -nostdin -hide_banner -i "$f" \
     -vn -af "loudnorm=I=${TARGET_I}:TP=${TARGET_TP}:LRA=${TARGET_LRA}:print_format=json" \
+    -progress "$PROGRESS_FILE" \
     -f null /dev/null 2>&1)
+  stop_progress_reader
 
   if [ "$INTERRUPTED" -eq 1 ]; then
     rm -f "$OUTFILE_TMP"
@@ -397,9 +482,11 @@ while IFS= read -r -d '' f; do
     INPUT_THRESH=$(echo "$PARSED" | cut -d' ' -f4)
     TARGET_OFFSET=$(echo "$PARSED" | cut -d' ' -f5)
 
+    start_progress_reader "Encoding" "$DURATION_S"
     if ffmpeg -nostdin -hide_banner -loglevel warning -i "$f" \
       -vn -af "loudnorm=I=${TARGET_I}:TP=${TARGET_TP}:LRA=${TARGET_LRA}:measured_I=${INPUT_I}:measured_TP=${INPUT_TP}:measured_LRA=${INPUT_LRA}:measured_thresh=${INPUT_THRESH}:offset=${TARGET_OFFSET}:linear=true" \
       -ar "${SRC_RATE}" "${ENC_ARGS[@]}" -map_metadata 0 -id3v2_version 3 \
+      -progress "$PROGRESS_FILE" \
       -f mp3 "$OUTFILE_TMP" 2>"$ERR_TMP"; then
       ENCODE_OK=1
       # Direction marker: ▲ if input was quieter (boosted up), ▼ if louder
@@ -408,17 +495,21 @@ while IFS= read -r -d '' f; do
         'BEGIN { d = t - i; if (d > 0.5) printf "▲%.1fdB", d; else if (d < -0.5) printf "▼%.1fdB", -d; else print "≈" }')
       ENCODE_DESC="${INPUT_I} → ${TARGET_I} LUFS"
     fi
+    stop_progress_reader
   else
     # Single-pass fallback when measurement fails — input loudness unknown,
     # so no direction marker.
+    start_progress_reader "Encoding" "$DURATION_S"
     if ffmpeg -nostdin -hide_banner -loglevel warning -i "$f" \
       -vn -af "loudnorm=I=${TARGET_I}:TP=${TARGET_TP}:LRA=${TARGET_LRA}" \
       -ar "${SRC_RATE}" "${ENC_ARGS[@]}" -map_metadata 0 -id3v2_version 3 \
+      -progress "$PROGRESS_FILE" \
       -f mp3 "$OUTFILE_TMP" 2>"$ERR_TMP"; then
       ENCODE_OK=1
       LUFS_INDICATOR=""
       ENCODE_DESC="single-pass → ${TARGET_I} LUFS"
     fi
+    stop_progress_reader
   fi
 
   FILE_ELAPSED=$(($(date +%s) - FILE_START))
