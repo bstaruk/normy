@@ -221,11 +221,15 @@ render_progress_line() {
 
 run_progress_loop() {
   local label="$1" duration="$2"
+  local heartbeat_start=$(date +%s)
+  local next_heartbeat_at=0
   local out_time_us out_time speed pct last_pct=-1
+  local elapsed
   out_time=0
   speed=""
   while [ ! -f "$PROGRESS_FILE.done" ]; do
     if [ "$duration" -gt 0 ] && [ -s "$PROGRESS_FILE" ]; then
+      # Real progress mode
       out_time_us=$(awk -F= '/^out_time_us=/{x=$2}END{print x+0}' "$PROGRESS_FILE" 2>/dev/null)
       speed=$(awk -F= '/^speed=/{x=$2}END{print x}' "$PROGRESS_FILE" 2>/dev/null)
       out_time=$((out_time_us / 1000000))
@@ -235,6 +239,15 @@ run_progress_loop() {
         render_progress_line "$label" "$pct" "$out_time" "$duration" "$speed"
         last_pct=$pct
       fi
+    elif [ "$duration" -le 0 ]; then
+      # Heartbeat fallback — show "still working" every minute, but only once
+      # we've been at it 5+ minutes (no point reassuring the user about a
+      # 30-second encode).
+      elapsed=$(($(date +%s) - heartbeat_start))
+      if [ "$elapsed" -ge 300 ] && [ "$elapsed" -ge "$next_heartbeat_at" ]; then
+        printf "\r  %-9s (still working) %s elapsed\033[K" "$label" "$(format_duration $elapsed)"
+        next_heartbeat_at=$((elapsed + 60))
+      fi
     fi
     sleep 0.5
   done
@@ -243,7 +256,7 @@ run_progress_loop() {
 
 start_progress_reader() {
   local label="$1" duration="${2:-0}"
-  if ! [ -t 1 ] || [ "$duration" -le 0 ]; then
+  if ! [ -t 1 ]; then
     READER_PID=""
     return
   fi
