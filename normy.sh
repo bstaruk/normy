@@ -292,10 +292,8 @@ while IFS= read -r f; do
   COUNT=$((COUNT + 1))
 
   REL_PATH="${f#${SRC_DIR_ABS}/}"
-  REL_DIR=$(dirname "$REL_PATH")
-  BASENAME=$(basename "$f")
-  OUTDIR_FULL="${OUT_DIR_ABS}/${REL_DIR}"
-  OUTFILE="${OUTDIR_FULL}/${BASENAME}"
+  OUTFILE="${OUT_DIR_ABS}/${REL_PATH}"
+  OUTDIR_FULL=$(dirname "$OUTFILE")
   OUTFILE_TMP="${OUTFILE}.tmp"
 
   mkdir -p "$OUTDIR_FULL"
@@ -375,7 +373,7 @@ while IFS= read -r f; do
     if ffmpeg -nostdin -hide_banner -loglevel warning -i "$f" \
       -vn -af "loudnorm=I=${TARGET_I}:TP=${TARGET_TP}:LRA=${TARGET_LRA}:measured_I=${INPUT_I}:measured_TP=${INPUT_TP}:measured_LRA=${INPUT_LRA}:measured_thresh=${INPUT_THRESH}:offset=${TARGET_OFFSET}:linear=true" \
       -ar "${SRC_RATE}" "${ENC_ARGS[@]}" -map_metadata 0 -id3v2_version 3 \
-      "$OUTFILE_TMP" 2>"$ERR_TMP"; then
+      -f mp3 "$OUTFILE_TMP" 2>"$ERR_TMP"; then
       ENCODE_OK=1
       ENCODE_DESC="${INPUT_I} -> ${TARGET_I} LUFS"
     fi
@@ -384,7 +382,7 @@ while IFS= read -r f; do
     if ffmpeg -nostdin -hide_banner -loglevel warning -i "$f" \
       -vn -af "loudnorm=I=${TARGET_I}:TP=${TARGET_TP}:LRA=${TARGET_LRA}" \
       -ar "${SRC_RATE}" "${ENC_ARGS[@]}" -map_metadata 0 -id3v2_version 3 \
-      "$OUTFILE_TMP" 2>"$ERR_TMP"; then
+      -f mp3 "$OUTFILE_TMP" 2>"$ERR_TMP"; then
       ENCODE_OK=1
       ENCODE_DESC="single-pass -> ${TARGET_I} LUFS"
     fi
