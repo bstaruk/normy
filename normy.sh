@@ -220,7 +220,7 @@ OUT_DIR_ABS=$(cd "$OUT_DIR" && pwd)
 # kept as a symlink to the current run's log. Previous runs' logs are
 # preserved so you can review history after a long batch.
 LOG_DIR="${OUT_DIR_ABS}/logs"
-mkdir -p "$LOG_DIR"
+mkdir -p "$LOG_DIR" || { echo "ERROR: Cannot create log directory: $LOG_DIR" >&2; exit 1; }
 RUN_TS=$(date +%Y%m%d-%H%M%S)
 LOG_FILE="${LOG_DIR}/normalize-${RUN_TS}.log"
 ln -sf "logs/normalize-${RUN_TS}.log" "${OUT_DIR_ABS}/normalize.log" 2>/dev/null
