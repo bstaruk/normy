@@ -313,11 +313,13 @@ while IFS= read -r f; do
     continue
   fi
 
-  # Progress / ETA prefix
+  # Progress / ETA prefix. Project from time-per-handled-file (attempted +
+  # skipped) rather than time-per-attempt, so a heavy resume where most
+  # remaining files will skip instantly doesn't get an inflated estimate.
   if [ "$ATTEMPTED" -gt 0 ]; then
-    AVG=$((TIME_PROCESSING / ATTEMPTED))
     REMAINING=$((TOTAL - COUNT + 1))
-    ETA_SECONDS=$((AVG * REMAINING))
+    HANDLED=$((ATTEMPTED + SKIPPED))
+    ETA_SECONDS=$((TIME_PROCESSING * REMAINING / HANDLED))
     PREFIX="[${COUNT}/${TOTAL}] [ETA $(format_duration $ETA_SECONDS)]"
   else
     PREFIX="[${COUNT}/${TOTAL}] [ETA --]"
