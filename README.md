@@ -85,7 +85,6 @@ A few non-obvious choices worth understanding:
 - **Source-bitrate preservation, not a fixed bitrate.** A fixed 320k re-encode bloats low-bitrate archive material ~10× for zero quality gain (you can't recover detail that wasn't there in the source). The 96k floor exists because re-encoding ultra-low-bitrate sources at the same bitrate produces noticeable generation-loss artifacts — bumping the floor gives the new encoder a little headroom.
 - **Decoder warnings are summarized, not dumped.** Old MP3s with corrupted frames produce hundreds of identical "Header missing" / "Invalid data found" lines per file. The log gets a one-line tally instead, while preserving any non-flood stderr verbatim. Files exceeding the warning threshold are surfaced in the final summary so you can spot-check them.
 - **`python3` for JSON parsing.** FFmpeg's loudnorm JSON is embedded in noisy stderr; a regex-based extraction is fragile. Could move to `jq` if we want one less interpreter dep.
-- **Single bash file, no helper modules.** Easier to read, audit, and install. Stays portable.
 
 ## License
 

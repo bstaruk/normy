@@ -13,7 +13,6 @@ Single-file bash script that batch-normalizes MP3 loudness via FFmpeg's `loudnor
 ## Working decisions (don't relitigate without asking)
 
 - **Stay in bash.** Node was considered and rejected — the script is a thin wrapper around FFmpeg/ffprobe and rewriting would only add deps without adding capability.
-- **Single file**, no helper modules. Easier for users to read and install.
 - **`python3` is an acceptable hard dep** (parses FFmpeg's loudnorm JSON). Don't try to "simplify" it away with grep/awk — the embedded JSON is too fragile for that.
 
 ## Open threads
