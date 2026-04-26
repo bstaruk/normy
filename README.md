@@ -1,22 +1,56 @@
 # normy
 
-Batch loudness normalization for MP3 collections. Wraps FFmpeg's two-pass `loudnorm` filter (EBU R128) with a single-pass fallback. Built for normalizing variable-quality archive material — old radio recordings, podcasts, audiobooks — where source bitrates, sample rates, and volumes are all over the map.
+Batch loudness normalization for MP3 collections, built for variable-quality archive material — old radio recordings, podcasts, audiobooks. Wraps FFmpeg's two-pass `loudnorm` filter (EBU R128) with a single-pass fallback, preserves source bitrates and sample rates per-file (so a 1 GB low-bitrate archive doesn't bloat into 30 GB), and resumes safely after Ctrl+C.
 
-**Highlights**
+## What it looks like
 
-- Two-pass loudnorm with single-pass fallback
-- Preserves source bitrate by default (with a sensible floor) — won't bloat 1GB of low-bitrate archives into 30GB
-- Preserves source sample rate per-file
-- Mirrors source folder structure to the output directory
-- Resumable: safe to interrupt with Ctrl+C; partial files are cleaned up; rerun picks up where it left off
-- Interactive prompts (with last-used paths remembered) or CLI args
-- Per-file progress + running ETA
-- Decoder-warning summarization so the log doesn't drown in repeated errors from corrupt source frames
+```
+=== normy ===
+Source:   /Volumes/Wolfpack/Media/Radio/Art Bell
+Output:   /Volumes/Wolfpack/Media/Radio/Art Bell Normalized
+Files:    921
+Target:   -16 LUFS
+Encoding: preserve source (floor 96k)
+Started:  Sun Apr 26 16:52:45 EDT 2026
+=============
+[1/921] [ETA --] 1992-12-12 - Area 51 - John Lear - Bob Lazar.mp3
+  OK ▲5.8dB (-21.79 → -16 LUFS, 96k @ 22050Hz) in 25s
+[2/921] [✓1] [ETA 6h21m] 1993-06-20 - Al Bielek - Philadelphia Experiment.mp3
+  OK ▲8.2dB (-24.20 → -16 LUFS, 64k → 96k @ 44100Hz) in 18s
+[3/921] [✓2] [ETA 5h47m] 1993-09-03 - John Lear - UFOs.mp3
+  OK ≈ (-16.30 → -16 LUFS, 96k @ 22050Hz) in 21s
+[4/921] [✓3] [ETA 5h33m] 1993-10-30 - Ghost to Ghost 1993.mp3
+  Encoding  ████████████░░░░░░░░  62% │ 01:12 / 01:56 │ 9.2x
+...
+[30/921] [✓27 ✗1 ⊘1] [ETA 4h12m] 1994-10-30 - Ghost To Ghost 1994.mp3
+  OK ▼0.1dB (-16.12 → -16 LUFS, 96k @ 22050Hz) in 19s [! 87 decode warnings]
+...
+
+=== Done ===
+Finished:  Sun Apr 26 22:14:09 EDT 2026
+Elapsed:   5h21m
+Total:     921
+Success:   905
+Skipped:   10
+Failed:    6
+
+Files with significant decode warnings (output may have audible glitches):
+  - 1994-10-30 - Ghost To Ghost 1994.mp3 (87 warnings)
+  - 1995-03-19 - Linda Moulton Howe.mp3 (102 warnings)
+
+Bitrate distribution:
+    32k: 47 files
+    64k: 312 files
+    96k: 245 files
+   128k: 198 files
+   192k: 87 files
+   256k: 16 files
+```
 
 ## Requirements
 
 - `ffmpeg` and `ffprobe`
-- `python3` (used for parsing FFmpeg's loudnorm JSON output)
+- `python3`
 
 ```sh
 brew install ffmpeg          # macOS
@@ -27,65 +61,41 @@ sudo apt install ffmpeg      # Debian/Ubuntu
 
 ```sh
 ./normy.sh                                  # interactive prompts
-./normy.sh /path/to/mp3s                    # CLI: source only
-./normy.sh /path/to/mp3s /path/to/output    # CLI: source + output
+./normy.sh /path/to/mp3s                    # source only
+./normy.sh /path/to/mp3s /path/to/output    # source + output
 ```
 
-If you omit the output path, normy writes to a `normalized/` subfolder inside the source directory.
-
-Last-used source/output paths are remembered in `~/.normy_history` and offered as defaults on the next interactive run.
+If you omit the output path, normy writes to a `normalized/` subfolder inside the source. Last-used paths are remembered in `~/.normy_history` and offered as defaults the next time you run it interactively.
 
 ### Resuming
 
-If you Ctrl+C mid-run, normy finishes the current file's cleanup and exits. The partially-encoded file is removed. Rerun with the same paths and it skips everything already done. Press Ctrl+C twice to force-quit.
+Press Ctrl+C anytime. normy finishes cleanup on the in-progress file, discards any partial output, and exits. Re-run with the same paths and it picks up where it left off. Press Ctrl+C twice to force quit.
 
-## Defaults
+## Configuration
 
-| Setting           | Value                   | Notes                                  |
-| ----------------- | ----------------------- | -------------------------------------- |
-| Target loudness   | `-16 LUFS`              | Spoken-word friendly (R128 broadcast)  |
-| True peak ceiling | `-1.5 dBTP`             |                                        |
-| Loudness range    | `11 LU`                 |                                        |
-| Encoding          | preserve source bitrate | Floor at 96 kbps; sample rate preserved|
+The defaults are tuned for spoken-word archive material. To change them, edit the constants near the top of `normy.sh`.
 
-Edit the constants at the top of `normy.sh` to change.
+| Setting           | Default      | Notes                                  |
+| ----------------- | ------------ | -------------------------------------- |
+| Target loudness   | `-16 LUFS`   | Podcast / spoken-word standard         |
+| True peak ceiling | `-1.5 dBTP`  |                                        |
+| Loudness range    | `11 LU`      |                                        |
+| Encoding mode     | `preserve`   | Match source bitrate, with floor       |
+| Bitrate floor     | `96 kbps`    | Bumps up ultra-low-bitrate sources     |
+| Sample rate       | source       | Preserved per-file from the input      |
 
 ### Encoding modes
 
-Two modes, set via `ENCODE_MODE` near the top of the script:
-
-- **`preserve`** (default) — match each file's source bitrate, with a `BITRATE_FLOOR` (default 96 kbps) for sources below that. Best for archive material with mixed source quality. Won't inflate small files.
-- **`vbr`** — LAME VBR with `VBR_QUALITY` (default 4, ~165 kbps avg). Best for podcast/voice workflows where source material is consistent.
+- **`preserve`** *(default)* — match each file's source bitrate, with the floor for very low ones. Best for archive material with mixed source quality; won't inflate small files.
+- **`vbr`** — LAME VBR (`-q:a 4` ≈ 165 kbps avg). Best for podcast/voice workflows where source quality is consistent.
 
 ## Output
 
-- Files mirror the source directory structure under the output dir.
-- Each run writes a timestamped log to `<output>/logs/normalize-YYYYMMDD-HHMMSS.log`. `<output>/normalize.log` is a symlink to the current run's log, so `tail -f normalize.log` works as you'd expect. Previous runs' logs are kept so you can review what happened across multiple resumes.
-- Existing output files are skipped (safe to rerun).
-- The end-of-run summary lists any failed files and any files with significant decode warnings — those encoded successfully but the output may have audible glitches from corrupt source frames; worth spot-checking.
-
-## How it works
-
-Per file, normy:
-
-1. **Validates** that there's a readable audio stream (`ffprobe`).
-2. **Detects** source sample rate and bitrate (used for output settings).
-3. **Pass 1 — measure.** Runs `loudnorm` against `/dev/null` with `print_format=json`, parses the embedded JSON out of FFmpeg's noisy stderr.
-4. **Pass 2 — apply.** Runs `loudnorm` again with the measured values for accurate two-pass normalization, encoding to `OUTFILE.tmp`.
-5. **Atomic finalize.** On success, `mv` the `.tmp` to its final name. On failure or interrupt, the `.tmp` is removed.
-6. **Fallback.** If pass 1 measurement fails (some malformed inputs make this happen), normy retries as a single-pass normalization — less accurate but better than nothing.
-
-Output mirrors the source folder structure. Files already present at the destination are skipped, which is what makes resume work.
-
-## Design notes
-
-A few non-obvious choices worth understanding:
-
-- **Atomic writes (`.tmp` then `mv`)** mean a Ctrl+C never leaves a half-encoded file at the final path. Without this, the skip-if-exists check would falsely treat partial files as "already done" on the next run. Stale `.tmp` files are also swept on startup so you recover cleanly from crashes.
-- **Source-bitrate preservation, not a fixed bitrate.** A fixed 320k re-encode bloats low-bitrate archive material ~10× for zero quality gain (you can't recover detail that wasn't there in the source). The 96k floor exists because re-encoding ultra-low-bitrate sources at the same bitrate produces noticeable generation-loss artifacts — bumping the floor gives the new encoder a little headroom.
-- **Decoder warnings are summarized, not dumped.** Old MP3s with corrupted frames produce hundreds of identical "Header missing" / "Invalid data found" lines per file. The log gets a one-line tally instead, while preserving any non-flood stderr verbatim. Files exceeding the warning threshold are surfaced in the final summary so you can spot-check them.
-- **`python3` for JSON parsing.** FFmpeg's loudnorm JSON is embedded in noisy stderr; a regex-based extraction is fragile. Could move to `jq` if we want one less interpreter dep.
+- Files mirror the source folder structure under the output directory.
+- Each run writes a timestamped log to `<output>/logs/normalize-YYYYMMDD-HHMMSS.log`.
+- `<output>/normalize.log` is a symlink to the current run's log, so `tail -f normalize.log` always tracks the active run.
+- Existing output files are skipped, which is what makes Ctrl+C / rerun cheap.
 
 ## License
 
-MIT (or specify your preference)
+MIT
