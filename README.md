@@ -60,7 +60,7 @@ Two modes, set via `ENCODE_MODE` near the top of the script:
 ## Output
 
 - Files mirror the source directory structure under the output dir.
-- `normalize.log` is written to the output dir with per-file results.
+- Each run writes a timestamped log to `<output>/logs/normalize-YYYYMMDD-HHMMSS.log`. `<output>/normalize.log` is a symlink to the current run's log, so `tail -f normalize.log` works as you'd expect. Previous runs' logs are kept so you can review what happened across multiple resumes.
 - Existing output files are skipped (safe to rerun).
 - The end-of-run summary lists any failed files and any files with significant decode warnings — those encoded successfully but the output may have audible glitches from corrupt source frames; worth spot-checking.
 

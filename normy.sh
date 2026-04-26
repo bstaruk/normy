@@ -215,7 +215,15 @@ mkdir -p "$OUT_DIR" || { echo "ERROR: Cannot create output directory: $OUT_DIR" 
 
 SRC_DIR_ABS=$(cd "$SRC_DIR" && pwd)
 OUT_DIR_ABS=$(cd "$OUT_DIR" && pwd)
-LOG_FILE="${OUT_DIR_ABS}/normalize.log"
+
+# Per-run timestamped logs in $OUT_DIR/logs/, with $OUT_DIR/normalize.log
+# kept as a symlink to the current run's log. Previous runs' logs are
+# preserved so you can review history after a long batch.
+LOG_DIR="${OUT_DIR_ABS}/logs"
+mkdir -p "$LOG_DIR"
+RUN_TS=$(date +%Y%m%d-%H%M%S)
+LOG_FILE="${LOG_DIR}/normalize-${RUN_TS}.log"
+ln -sf "logs/normalize-${RUN_TS}.log" "${OUT_DIR_ABS}/normalize.log" 2>/dev/null
 
 write_history
 
